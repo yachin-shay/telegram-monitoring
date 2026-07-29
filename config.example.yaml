@@ -1,0 +1,13 @@
+schema_version: 1
+account:
+  name: research-1
+  api_id: 123456
+  api_hash_env: TELEGRAM_API_HASH
+paths:
+  tdlib: state/research-1/tdlib
+  database: state/research-1/collector.sqlite3
+  media: state/research-1/media
+  socket: state/research-1/daemon.sock
+targets: {}
+plugins: {}
+

@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "telegram-osint"
+version = "0.1.0"
+description = "Authorized, account-scoped Telegram collection daemon"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = ["PyYAML>=6"]
+
+[project.scripts]
+tg-osint = "telegram_osint.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+pythonpath = ["src"]
+
