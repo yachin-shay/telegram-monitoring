@@ -38,7 +38,7 @@ class JobRunner:
             if job.kind == "user_scrape":
                 await self._user_scrape(job.payload)
             elif job.kind == "chat_history":
-                await self._chat_history(job.payload)
+                await self._chat_history(job.id, job.payload)
             else:
                 raise ValueError(f"unsupported job kind: {job.kind}")
         except Exception as error:
@@ -86,7 +86,7 @@ class JobRunner:
             if not photos or offset >= int(result.get("total_count", offset)):
                 break
 
-    async def _chat_history(self, payload: dict[str, Any]) -> None:
+    async def _chat_history(self, job_id: str, payload: dict[str, Any]) -> None:
         chat_id = int(payload["chat_id"])
         from_message_id = int(payload.get("from_message_id", 0))
         while True:
@@ -95,7 +95,7 @@ class JobRunner:
                     "@type": "getChatHistory",
                     "chat_id": chat_id,
                     "from_message_id": from_message_id,
-                    "offset": 0,
+                    "offset": -1 if from_message_id else 0,
                     "limit": 100,
                     "only_local": False,
                 }
@@ -109,3 +109,5 @@ class JobRunner:
             if next_id == from_message_id:
                 return
             from_message_id = next_id
+            payload["from_message_id"] = from_message_id
+            self.database.checkpoint_job(job_id, payload)

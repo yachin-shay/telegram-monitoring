@@ -94,6 +94,13 @@ def _enabled(value: Any, context: str, default: bool = True) -> bool:
     return enabled
 
 
+def _boolean(data: Mapping[str, Any], key: str, default: bool, context: str) -> bool:
+    value = data.get(key, default)
+    if not isinstance(value, bool):
+        raise ConfigError(f"{context}.{key} must be boolean")
+    return value
+
+
 def _parse_media(value: Any) -> MediaPolicy:
     data = _mapping(value, "target.media")
     _strict_keys(data, {"enabled", "types", "max_bytes"}, "target.media")
@@ -103,9 +110,7 @@ def _parse_media(value: Any) -> MediaPolicy:
     max_bytes = data.get("max_bytes", 100 * 1024 * 1024)
     if not isinstance(max_bytes, int) or max_bytes < 0:
         raise ConfigError("target.media.max_bytes must be a non-negative integer")
-    enabled = data.get("enabled", False)
-    if not isinstance(enabled, bool):
-        raise ConfigError("target.media.enabled must be boolean")
+    enabled = _boolean(data, "enabled", False, "target.media")
     return MediaPolicy(enabled=enabled, types=tuple(types), max_bytes=max_bytes)
 
 
@@ -125,11 +130,21 @@ def _parse_profiles(value: Any) -> ProfilePolicy:
     if not isinstance(max_bytes, int) or max_bytes < 0:
         raise ConfigError("profile photo max_bytes must be non-negative")
     return ProfilePolicy(
-        enabled=bool(data.get("enabled", True)),
-        snapshot_on_change=bool(data.get("snapshot_on_change", True)),
+        enabled=_boolean(data, "enabled", True, "target.profiles"),
+        snapshot_on_change=_boolean(
+            data,
+            "snapshot_on_change",
+            True,
+            "target.profiles",
+        ),
         photos=PhotoPolicy(
             mode=mode,
-            download=bool(photos_data.get("download", False)),
+            download=_boolean(
+                photos_data,
+                "download",
+                False,
+                "target.profiles.photos",
+            ),
             max_bytes=max_bytes,
         ),
     )
@@ -283,4 +298,3 @@ def mutate_config(
     finally:
         Path(temporary_name).unlink(missing_ok=True)
     return load_config(source)
-

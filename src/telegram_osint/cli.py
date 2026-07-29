@@ -57,7 +57,7 @@ def build_parser() -> argparse.ArgumentParser:
     job.add_argument("job_id")
 
     auth = commands.add_parser("auth")
-    auth.add_argument("action", choices=("status", "phone", "code", "password"))
+    auth.add_argument("action", choices=("status", "qr", "phone", "code", "password"))
     auth.add_argument("--phone-number")
 
     return parser
@@ -94,6 +94,8 @@ async def _request(args: argparse.Namespace) -> dict[str, Any]:
     if args.command == "auth":
         if args.action == "status":
             return await client.request("auth.status", {})
+        if args.action == "qr":
+            return await client.request("auth.qr", {})
         if args.action == "phone":
             phone = args.phone_number or input("Phone number: ")
             return await client.request("auth.phone", {"phone_number": phone})

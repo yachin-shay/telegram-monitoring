@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import socket
+import struct
 import uuid
 from pathlib import Path
 from typing import Any
@@ -51,6 +53,18 @@ class ControlServer:
         writer: asyncio.StreamWriter,
     ) -> None:
         try:
+            peer_socket = writer.get_extra_info("socket")
+            if peer_socket is not None and hasattr(socket, "SO_PEERCRED"):
+                credentials = peer_socket.getsockopt(
+                    socket.SOL_SOCKET,
+                    socket.SO_PEERCRED,
+                    struct.calcsize("3i"),
+                )
+                _pid, uid, _gid = struct.unpack("3i", credentials)
+                if uid != os.getuid():
+                    writer.write(b'{"ok":false,"error":"unauthorized local peer"}\n')
+                    await writer.drain()
+                    return
             line = await reader.readline()
             if len(line) > MAX_FRAME_BYTES:
                 response = {"ok": False, "error": "request frame is too large"}

@@ -16,11 +16,11 @@ or provide access beyond the authenticated account.
 - Multi-terminal control through an owner-only Unix socket.
 - Strict, versioned YAML configuration as the source of truth.
 - Joined-chat metadata persistence and target selection by numeric chat ID.
-- Durable selected-chat history jobs and targeted real-time updates.
+- Selected-chat history jobs with page checkpoints and targeted real-time updates.
 - Unlimited message revisions and non-destructive deletion markers.
 - Explicit user scrape jobs with full-info and visible photo-history pagination.
-- Per-target media policy and content-addressed file storage primitives.
-- SQLite WAL storage and a transactional plugin outbox.
+- Per-target media policy and a content-addressed file-storage primitive.
+- SQLite WAL storage and plugin-outbox primitives.
 
 ## Development setup
 
@@ -56,6 +56,7 @@ Use other terminals for control:
 
 ```bash
 .venv/bin/tg-osint --config config.yaml auth status
+.venv/bin/tg-osint --config config.yaml auth qr
 .venv/bin/tg-osint --config config.yaml chats
 .venv/bin/tg-osint --config config.yaml targets add -1001234567890
 .venv/bin/tg-osint --config config.yaml targets media \

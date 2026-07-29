@@ -76,3 +76,16 @@ def test_durable_job_can_be_claimed_and_completed(tmp_path: Path) -> None:
     database.complete_job(job_id)
     assert database.get_job(job_id).state == "succeeded"
 
+
+def test_migration_recovers_interrupted_running_job(tmp_path: Path) -> None:
+    path = tmp_path / "collector.sqlite3"
+    database = Database(path)
+    database.migrate()
+    job_id = database.enqueue_job(kind="history", payload={"cursor": 10})
+    database.claim_next_job()
+    database.close()
+
+    recovered = Database(path)
+    recovered.migrate()
+
+    assert recovered.get_job(job_id).state == "queued"

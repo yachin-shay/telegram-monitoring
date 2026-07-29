@@ -84,6 +84,7 @@ class Daemon:
             account_id=self.account_id,
         )
         self._job_task: asyncio.Task[None] | None = None
+        self._identity_task: asyncio.Task[None] | None = None
 
     async def run(self) -> None:
         self.lock.acquire()
@@ -119,6 +120,8 @@ class Daemon:
                 await self._job_task
             except asyncio.CancelledError:
                 pass
+        if self._identity_task is not None and not self._identity_task.done():
+            self._identity_task.cancel()
         await self.control.close()
         if self.authorization.state not in {
             "authorizationStateClosed",
@@ -131,15 +134,36 @@ class Daemon:
 
     async def _run_jobs(self) -> None:
         while True:
+            if (
+                self.authorization.state != "authorizationStateReady"
+                or self.account_id == 0
+            ):
+                await asyncio.sleep(0.25)
+                continue
             worked = await self.job_runner.run_once()
             if not worked:
                 await asyncio.sleep(0.25)
 
     def _update(self, update: dict[str, Any]) -> None:
         if update.get("@type") == "updateAuthorizationState":
-            self.authorization.handle(update.get("authorization_state", {}))
+            state = update.get("authorization_state", {})
+            self.authorization.handle(state)
+            if (
+                state.get("@type") == "authorizationStateReady"
+                and self._identity_task is None
+            ):
+                self._identity_task = asyncio.create_task(self._load_identity())
         else:
             self.collector.handle_update(update)
+
+    async def _load_identity(self) -> None:
+        me = await self.client.request({"@type": "getMe"})
+        account_id = int(me["id"])
+        self.account_id = account_id
+        self.collector.account_id = account_id
+        self.control.account_id = account_id
+        self.job_runner.account_id = account_id
+        self.database.register_account(account_id, self.config.account.name)
 
     def _control(self, command: str, arguments: dict[str, Any]) -> Any:
         if command == "auth.status":
@@ -147,6 +171,9 @@ class Daemon:
                 "state": self.authorization.state,
                 "qr_link": self.authorization.qr_link,
             }
+        if command == "auth.qr":
+            self.authorization.request_qr()
+            return {"accepted": True}
         if command == "auth.phone":
             self.authorization.submit_phone(str(arguments["phone_number"]))
             return {"accepted": True}

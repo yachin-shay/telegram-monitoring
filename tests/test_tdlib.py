@@ -59,6 +59,7 @@ def test_authorization_translates_tdlib_states_to_supported_requests() -> None:
 
     auth.handle({"@type": "authorizationStateWaitTdlibParameters"})
     auth.handle({"@type": "authorizationStateWaitPhoneNumber"})
+    auth.request_qr()
     auth.submit_phone("+12025550123")
     auth.handle({"@type": "authorizationStateWaitCode"})
     auth.submit_code("12345")
@@ -70,4 +71,3 @@ def test_authorization_translates_tdlib_states_to_supported_requests() -> None:
         "phone_number": "+12025550123",
     }
     assert requests[3] == {"@type": "checkAuthenticationCode", "code": "12345"}
-

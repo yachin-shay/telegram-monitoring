@@ -3,11 +3,14 @@ from __future__ import annotations
 import asyncio
 import ctypes
 import json
+import logging
 import threading
 import uuid
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Protocol
+
+LOGGER = logging.getLogger(__name__)
 
 
 class TdLibError(RuntimeError):
@@ -119,7 +122,11 @@ class TdJsonClient:
                 continue
             try:
                 item = json.loads(raw)
-            except (UnicodeDecodeError, json.JSONDecodeError):
+            except (UnicodeDecodeError, json.JSONDecodeError) as error:
+                LOGGER.error(
+                    "discarding malformed TDLib frame",
+                    extra={"error": str(error), "frame_bytes": len(raw)},
+                )
                 continue
             if self._loop is not None:
                 self._loop.call_soon_threadsafe(self._dispatch, item)
@@ -186,7 +193,7 @@ class Authorization:
                 }
             )
         elif self.state == "authorizationStateWaitPhoneNumber":
-            self.send({"@type": "requestQrCodeAuthentication", "other_user_ids": []})
+            self.qr_link = None
         elif self.state == "authorizationStateWaitOtherDeviceConfirmation":
             self.qr_link = state.get("link")
 
@@ -198,9 +205,11 @@ class Authorization:
             }
         )
 
+    def request_qr(self) -> None:
+        self.send({"@type": "requestQrCodeAuthentication", "other_user_ids": []})
+
     def submit_code(self, code: str) -> None:
         self.send({"@type": "checkAuthenticationCode", "code": code})
 
     def submit_password(self, password: str) -> None:
         self.send({"@type": "checkAuthenticationPassword", "password": password})
-

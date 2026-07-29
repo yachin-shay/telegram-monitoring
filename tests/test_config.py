@@ -83,3 +83,20 @@ targets: {}
             arguments={"chat_id": -10099},
         )
 
+
+def test_profile_boolean_strings_are_rejected(tmp_path: Path) -> None:
+    path = tmp_path / "bad-bool.yaml"
+    path.write_text(
+        """
+schema_version: 1
+account: {name: test, api_id: 1, api_hash: value}
+paths: {tdlib: td, database: db.sqlite3, media: media}
+targets:
+  "42":
+    profiles: {enabled: "false"}
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConfigError, match="profiles.enabled must be boolean"):
+        load_config(path)

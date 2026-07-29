@@ -17,6 +17,11 @@ CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER PRIMARY KEY,
     applied_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS accounts (
+    account_id INTEGER PRIMARY KEY,
+    instance_name TEXT NOT NULL,
+    observed_at INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS messages (
     account_id INTEGER NOT NULL,
     chat_id INTEGER NOT NULL,
@@ -146,6 +151,13 @@ class Database:
             self.connection.executescript(SCHEMA)
             self.connection.execute(
                 "INSERT OR IGNORE INTO schema_version(version, applied_at) VALUES(1, ?)",
+                (int(time.time()),),
+            )
+            self.connection.execute(
+                """
+                UPDATE jobs SET state = 'queued', updated_at = ?
+                WHERE state = 'running'
+                """,
                 (int(time.time()),),
             )
 
@@ -347,6 +359,26 @@ class Database:
                 WHERE id = ?
                 """,
                 (error, int(time.time()), job_id),
+            )
+
+    def checkpoint_job(self, job_id: str, payload: dict[str, Any]) -> None:
+        with self.connection:
+            self.connection.execute(
+                "UPDATE jobs SET payload_json = ?, updated_at = ? WHERE id = ?",
+                (json.dumps(payload, sort_keys=True), int(time.time()), job_id),
+            )
+
+    def register_account(self, account_id: int, instance_name: str) -> None:
+        with self.connection:
+            self.connection.execute(
+                """
+                INSERT INTO accounts(account_id, instance_name, observed_at)
+                VALUES(?, ?, ?)
+                ON CONFLICT(account_id) DO UPDATE SET
+                  instance_name = excluded.instance_name,
+                  observed_at = excluded.observed_at
+                """,
+                (account_id, instance_name, int(time.time())),
             )
 
     def get_job(self, job_id: str) -> Job:
