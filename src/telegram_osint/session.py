@@ -17,6 +17,61 @@ class SessionConversionError(RuntimeError):
     """Raised when a Desktop session cannot be safely converted."""
 
 
+async def authenticate_telethon_qr(
+    session_path: str | Path,
+    *,
+    api_id: int,
+    api_hash: str,
+    render_qr: Any,
+    password_prompt: Any,
+    client_factory: Any | None = None,
+) -> dict[str, Any]:
+    """Create or authorize a Telethon session through Telegram's QR flow."""
+    try:
+        from telethon import TelegramClient
+        from telethon.errors import SessionPasswordNeededError
+    except ImportError as error:
+        raise SessionConversionError("Telethon is required for QR login") from error
+
+    destination = Path(session_path).expanduser().resolve()
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    factory = TelegramClient if client_factory is None else client_factory
+    with _conversion_lock(destination.parent):
+        client = factory(str(destination), api_id, api_hash)
+        await client.connect()
+        try:
+            if await client.is_user_authorized():
+                user = await client.get_me()
+            else:
+                while True:
+                    qr_login = await client.qr_login()
+                    render_qr(qr_login.url)
+                    try:
+                        user = await qr_login.wait()
+                        break
+                    except TimeoutError:
+                        continue
+                    except SessionPasswordNeededError:
+                        password = password_prompt()
+                        if not password:
+                            raise SessionConversionError(
+                                "this account requires a non-empty 2FA password"
+                            )
+                        user = await client.sign_in(password=password)
+                        break
+            if user is None:
+                raise SessionConversionError("Telegram did not authorize the session")
+        finally:
+            await client.disconnect()
+        if destination.exists():
+            os.chmod(destination, 0o600)
+        return {
+            "session": str(destination),
+            "user_id": int(user.id),
+            "username": getattr(user, "username", None),
+        }
+
+
 class SessionConverter(ABC):
     """Safe, destination-isolated boundary for tdata conversion backends."""
 

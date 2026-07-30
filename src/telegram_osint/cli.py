@@ -11,7 +11,7 @@ from typing import Any
 from telegram_osint.config import ConfigError, load_config
 from telegram_osint.daemon import run_daemon
 from telegram_osint.ipc import ControlClient
-from telegram_osint.session import OpenTele2Converter
+from telegram_osint.session import OpenTele2Converter, authenticate_telethon_qr
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -32,6 +32,10 @@ def build_parser() -> argparse.ArgumentParser:
     import_tdata.add_argument("--tdata", type=Path, required=True)
     import_tdata.add_argument("--output", type=Path, required=True)
     import_tdata.add_argument("--force", action="store_true")
+    session_subcommands.add_parser(
+        "login-qr",
+        help="authenticate the configured Telethon session with a QR code",
+    )
 
     commands.add_parser("status")
     commands.add_parser("chats")
@@ -90,6 +94,17 @@ async def _request(args: argparse.Namespace) -> dict[str, Any]:
     raise RuntimeError(f"unsupported command: {args.command}")
 
 
+def _print_qr(url: str) -> None:
+    import qrcode
+
+    qr = qrcode.QRCode(border=1)
+    qr.add_data(url)
+    qr.make(fit=True)
+    print("\nScan with Telegram: Settings → Devices → Link Desktop Device\n")
+    qr.print_ascii(invert=True)
+    print(f"\nLogin URL: {url}\n")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -98,17 +113,31 @@ def main(argv: list[str] | None = None) -> int:
             run_daemon(args.config)
             return 0
         if args.command == "session":
-            if args.session_command != "import-tdata":
+            if args.session_command == "import-tdata":
+                passcode = getpass.getpass(
+                    "tdata passcode (leave empty if none): "
+                ) or None
+                result = OpenTele2Converter().convert(
+                    args.tdata,
+                    args.output,
+                    passcode=passcode,
+                    force=args.force,
+                )
+            elif args.session_command == "login-qr":
+                config = load_config(args.config)
+                result = asyncio.run(
+                    authenticate_telethon_qr(
+                        config.paths.session,
+                        api_id=config.account.api_id,
+                        api_hash=config.account.api_hash,
+                        render_qr=_print_qr,
+                        password_prompt=lambda: getpass.getpass(
+                            "Telegram 2FA password: "
+                        ),
+                    )
+                )
+            else:
                 raise ConfigError("unsupported session command")
-            passcode = getpass.getpass(
-                "tdata passcode (leave empty if none): "
-            ) or None
-            result = OpenTele2Converter().convert(
-                args.tdata,
-                args.output,
-                passcode=passcode,
-                force=args.force,
-            )
             print(json.dumps(result, sort_keys=True))
             return 0
         response = asyncio.run(_request(args))

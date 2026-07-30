@@ -1,8 +1,14 @@
+import asyncio
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
-from telegram_osint.session import SessionConversionError, SessionConverter
+from telegram_osint.session import (
+    SessionConversionError,
+    SessionConverter,
+    authenticate_telethon_qr,
+)
 
 
 class FakeConverter(SessionConverter):
@@ -80,3 +86,43 @@ def test_conversion_rejects_destination_inside_source(tmp_path: Path) -> None:
     tdata.mkdir()
     with pytest.raises(SessionConversionError, match="inside"):
         FakeConverter().convert(tdata, tdata / "account.session")
+
+
+def test_qr_login_authorizes_fresh_session(tmp_path: Path) -> None:
+    rendered: list[str] = []
+
+    class QR:
+        url = "tg://login?token=test"
+
+        async def wait(self):
+            return SimpleNamespace(id=42, username="tester")
+
+    class Client:
+        def __init__(self, session: str, api_id: int, api_hash: str) -> None:
+            Path(session).touch()
+
+        async def connect(self) -> None:
+            pass
+
+        async def disconnect(self) -> None:
+            pass
+
+        async def is_user_authorized(self) -> bool:
+            return False
+
+        async def qr_login(self):
+            return QR()
+
+    result = asyncio.run(
+        authenticate_telethon_qr(
+            tmp_path / "account.session",
+            api_id=1,
+            api_hash="hash",
+            render_qr=rendered.append,
+            password_prompt=lambda: "",
+            client_factory=Client,
+        )
+    )
+
+    assert result["user_id"] == 42
+    assert rendered == ["tg://login?token=test"]

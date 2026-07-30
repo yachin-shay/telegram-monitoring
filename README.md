@@ -54,6 +54,17 @@ Convert an existing authenticated Desktop profile first:
 The source directory is read-only. The command prompts for a Desktop passcode
 without accepting it as a command-line argument.
 
+Alternatively, create a fresh, independent Telegram authorization directly:
+
+```bash
+.venv/bin/tg-osint --config config.yaml session login-qr
+```
+
+Scan the terminal QR code in Telegram under **Settings → Devices → Link
+Desktop Device**. Accounts with two-step verification are prompted for their
+password without placing it in shell history. The new credential is written to
+`paths.session` with owner-only permissions.
+
 Start the foreground daemon:
 
 ```bash

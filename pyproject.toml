@@ -13,6 +13,7 @@ dependencies = [
     "Telethon==1.44.0",
     "TgCrypto==1.2.5",
     "opentele2==1.2.1",
+    "qrcode==8.2",
 ]
 
 [project.scripts]

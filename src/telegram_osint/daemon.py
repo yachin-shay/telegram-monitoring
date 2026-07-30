@@ -66,7 +66,7 @@ class Daemon:
             account_id=self.account_id,
             extra_handler=self._control,
         )
-        self.lock = InstanceLock(config.paths.session.parent / ".daemon.lock")
+        self.lock = InstanceLock(config.paths.session.parent / ".session-conversion.lock")
         self.stop_event = asyncio.Event()
         self.job_runner = JobRunner(
             telegram=self.client,
@@ -87,6 +87,12 @@ class Daemon:
             # during identity/dialog discovery are not lost.
             self.client.subscribe(self.collector.handle_update)
             me = await self.client.get_me()
+            if me is None:
+                raise RuntimeError(
+                    "Telethon session is not authenticated; run "
+                    "`tg-osint --config "
+                    f"{self.config.source} session login-qr`"
+                )
             self.account_id = int(me.id)
             self.collector.account_id = self.account_id
             self.control.account_id = self.account_id
