@@ -155,6 +155,8 @@ class Daemon:
     async def _run_jobs(self) -> None:
         while True:
             worked = await self.job_runner.run_once()
+            if worked:
+                LOGGER.info("job queue processed one job; inspect job-show for progress")
             if not worked:
                 await asyncio.sleep(0.25)
 

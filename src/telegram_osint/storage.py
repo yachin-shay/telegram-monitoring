@@ -65,6 +65,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     last_error TEXT
+    ,progress_json TEXT NOT NULL DEFAULT '{}'
 );
 CREATE UNIQUE INDEX IF NOT EXISTS jobs_active_dedup
 ON jobs(deduplication_key)
@@ -153,6 +154,13 @@ class Database:
                 "INSERT OR IGNORE INTO schema_version(version, applied_at) VALUES(1, ?)",
                 (int(time.time()),),
             )
+            try:
+                self.connection.execute(
+                    "ALTER TABLE jobs ADD COLUMN progress_json TEXT NOT NULL DEFAULT '{}'"
+                )
+            except sqlite3.OperationalError as error:
+                if "duplicate column name" not in str(error):
+                    raise
             self.connection.execute(
                 """
                 UPDATE jobs SET state = 'queued', updated_at = ?
@@ -351,6 +359,13 @@ class Database:
                 (int(time.time()), job_id),
             )
 
+    def update_job_progress(self, job_id: str, progress: dict[str, Any]) -> None:
+        with self.connection:
+            self.connection.execute(
+                "UPDATE jobs SET progress_json = ?, updated_at = ? WHERE id = ?",
+                (json.dumps(progress, sort_keys=True), int(time.time()), job_id),
+            )
+
     def fail_job(self, job_id: str, error: str) -> None:
         with self.connection:
             self.connection.execute(
@@ -393,6 +408,7 @@ class Database:
             state=str(row["state"]),
             payload=json.loads(row["payload_json"]),
             attempts=int(row["attempts"]),
+            progress=json.loads(row["progress_json"] or "{}"),
         )
 
     def list_chats(self, account_id: int) -> list[dict[str, Any]]:

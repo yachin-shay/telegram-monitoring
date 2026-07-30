@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import time
+import logging
 from typing import Any, Protocol
 
 from telegram_osint.collector import Collector
 from telegram_osint.storage import Database
+
+LOGGER = logging.getLogger(__name__)
 
 
 class TelegramClient(Protocol):
@@ -34,21 +37,32 @@ class JobRunner:
         job = self.database.claim_next_job()
         if job is None:
             return False
+        LOGGER.info("job %s started kind=%s attempt=%s", job.id, job.kind, job.attempts + 1)
+        self.database.update_job_progress(job.id, {"stage": "started"})
         try:
             if job.kind == "user_scrape":
-                await self._user_scrape(job.payload)
+                await self._user_scrape(job.id, job.payload)
             elif job.kind == "chat_history":
                 await self._chat_history(job.id, job.payload)
             else:
                 raise ValueError(f"unsupported job kind: {job.kind}")
         except Exception as error:
             self.database.fail_job(job.id, str(error))
+            self.database.update_job_progress(
+                job.id, {"stage": "failed", "error": str(error)}
+            )
+            LOGGER.error("job %s failed: %s", job.id, error)
         else:
             self.database.complete_job(job.id)
+            self.database.update_job_progress(job.id, {"stage": "completed"})
+            LOGGER.info("job %s completed", job.id)
         return True
 
-    async def _user_scrape(self, payload: dict[str, Any]) -> None:
+    async def _user_scrape(self, job_id: str, payload: dict[str, Any]) -> None:
         user_id = int(payload["user_id"])
+        self.database.update_job_progress(
+            job_id, {"stage": "fetching_user", "user_id": user_id}
+        )
         user = await self.telegram.request({"@type": "getUser", "user_id": user_id})
         self.collector.handle_update({"@type": "updateUser", "user": user})
         full_info = await self.telegram.request(
@@ -62,6 +76,7 @@ class JobRunner:
             observed_at=observed_at,
         )
         if payload.get("photos") != "all_visible_history":
+            self.database.update_job_progress(job_id, {"stage": "user_complete"})
             return
         offset = 0
         while True:
@@ -83,12 +98,22 @@ class JobRunner:
                     observed_at=observed_at,
                 )
             offset += len(photos)
+            self.database.update_job_progress(
+                job_id,
+                {
+                    "stage": "fetching_profile_photos",
+                    "user_id": user_id,
+                    "photos_seen": offset,
+                    "photos_total": int(result.get("total_count", offset)),
+                },
+            )
             if not photos or offset >= int(result.get("total_count", offset)):
                 break
 
     async def _chat_history(self, job_id: str, payload: dict[str, Any]) -> None:
         chat_id = int(payload["chat_id"])
         from_message_id = int(payload.get("from_message_id", 0))
+        messages_seen = int(payload.get("messages_seen", 0))
         while True:
             result = await self.telegram.request(
                 {
@@ -105,9 +130,14 @@ class JobRunner:
                 return
             for message in messages:
                 self.collector.handle_history_message(message)
+            messages_seen += len(messages)
             next_id = min(int(message["id"]) for message in messages)
             if next_id == from_message_id:
                 return
             from_message_id = next_id
             payload["from_message_id"] = from_message_id
             self.database.checkpoint_job(job_id, payload)
+            self.database.update_job_progress(
+                job_id,
+                {"stage": "history_page", "messages_seen": messages_seen},
+            )

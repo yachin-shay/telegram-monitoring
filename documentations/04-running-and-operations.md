@@ -20,6 +20,7 @@ Run these from another terminal while the daemon owns the socket:
 .venv/bin/tg-osint --config config.yaml targets list
 .venv/bin/tg-osint --config config.yaml user-scrape 123456789
 .venv/bin/tg-osint --config config.yaml job-show JOB_ID
+.venv/bin/tg-osint --config config.yaml job-show JOB_ID --watch
 ```
 
 Pass `--json` before the subcommand when machine-readable output is needed:
@@ -27,6 +28,10 @@ Pass `--json` before the subcommand when machine-readable output is needed:
 ```bash
 .venv/bin/tg-osint --config config.yaml --json chats
 ```
+
+`job-show --watch` polls the durable job record and prints each state or
+progress change until the job succeeds or fails. The daemon also logs job
+start, completion, and failure events in its foreground output.
 
 ## Multiple accounts
 

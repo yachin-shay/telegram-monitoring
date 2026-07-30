@@ -112,6 +112,7 @@ class ControlServer:
                 "state": job.state,
                 "payload": job.payload,
                 "attempts": job.attempts,
+                "progress": job.progress,
             }
         elif self.extra_handler is not None:
             result = self.extra_handler(command, arguments)

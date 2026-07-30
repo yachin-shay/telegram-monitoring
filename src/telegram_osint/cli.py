@@ -59,6 +59,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     job = commands.add_parser("job-show")
     job.add_argument("job_id")
+    job.add_argument("--watch", action="store_true", help="poll until the job finishes")
+    job.add_argument("--interval", type=float, default=1.0)
 
     return parser
 
@@ -140,7 +142,10 @@ def main(argv: list[str] | None = None) -> int:
                 raise ConfigError("unsupported session command")
             print(json.dumps(result, sort_keys=True))
             return 0
-        response = asyncio.run(_request(args))
+        if args.command == "job-show" and args.watch:
+            response = asyncio.run(_watch_job(args))
+        else:
+            response = asyncio.run(_request(args))
     except (ConfigError, OSError, RuntimeError, ConnectionError) as error:
         parser.exit(2, f"error: {error}\n")
     if args.json:
@@ -151,6 +156,26 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: {response.get('error')}", file=sys.stderr)
         return 1
     return 0
+
+
+async def _watch_job(args: argparse.Namespace) -> dict[str, Any]:
+    config = load_config(args.config)
+    client = ControlClient(config.paths.socket)
+    last: tuple[Any, ...] | None = None
+    while True:
+        response = await client.request("jobs.show", {"job_id": args.job_id})
+        result = response.get("result", {})
+        marker = (
+            result.get("state"),
+            result.get("attempts"),
+            json.dumps(result.get("progress", {}), sort_keys=True),
+        )
+        if marker != last:
+            print(json.dumps(result, indent=2, sort_keys=True), flush=True)
+            last = marker
+        if result.get("state") in {"succeeded", "failed"}:
+            return response
+        await asyncio.sleep(max(0.1, args.interval))
 
 
 if __name__ == "__main__":

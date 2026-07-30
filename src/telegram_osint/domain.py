@@ -29,4 +29,4 @@ class Job:
     state: str
     payload: dict[str, Any]
     attempts: int
-
+    progress: dict[str, Any]
