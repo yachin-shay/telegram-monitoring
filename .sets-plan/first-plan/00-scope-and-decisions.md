@@ -1,5 +1,13 @@
 # 00 — Scope and Decisions
 
+## Superseding session decision
+
+The collector accepts an existing authenticated Telegram Desktop `tdata`
+directory and converts it to a separate Telethon session using OpenTele2. The
+source remains read-only. Telethon owns the runtime session; TDLib is not a
+runtime dependency. OpenTele2 cannot consume a TDLib database, so no TDLib
+session conversion is attempted.
+
 ## Authorization boundary
 
 The operator must supply their own Telegram `api_id` and `api_hash` and
@@ -79,4 +87,3 @@ ADR before code depending on it is merged:
    SQLite encryption.
 6. Plugin trust: version one supports trusted in-process plugins only; untrusted
    plugins require subprocess isolation in a later release.
-

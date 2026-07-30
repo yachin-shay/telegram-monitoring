@@ -5,6 +5,7 @@ import fcntl
 import logging
 import os
 import signal
+import time
 from pathlib import Path
 from typing import Any
 
@@ -13,7 +14,7 @@ from telegram_osint.config import AppConfig, load_config, mutate_config
 from telegram_osint.ipc import ControlServer
 from telegram_osint.jobs import JobRunner
 from telegram_osint.storage import Database
-from telegram_osint.tdlib import Authorization, NativeTdJson, TdJsonClient
+from telegram_osint.telethon_adapter import TelethonAdapter
 
 LOGGER = logging.getLogger(__name__)
 
@@ -45,14 +46,8 @@ class InstanceLock:
 
 
 class Daemon:
-    def __init__(
-        self,
-        config: AppConfig,
-        *,
-        library_path: str | Path,
-    ) -> None:
+    def __init__(self, config: AppConfig) -> None:
         self.config = config
-        self.library_path = Path(library_path)
         self.database = Database(config.paths.database)
         self.account_id = 0
         self.collector = Collector(
@@ -60,14 +55,10 @@ class Daemon:
             config=config,
             database=self.database,
         )
-        self.native = NativeTdJson(self.library_path)
-        self.client = TdJsonClient(native=self.native, update_handler=self._update)
-        self.authorization = Authorization(
-            send=self.client.send,
+        self.client = TelethonAdapter(
+            session_path=config.paths.session,
             api_id=config.account.api_id,
             api_hash=config.account.api_hash,
-            database_directory=str(config.paths.tdlib),
-            files_directory=str(config.paths.tdlib / "files"),
         )
         self.control = ControlServer(
             config=config,
@@ -75,7 +66,7 @@ class Daemon:
             account_id=self.account_id,
             extra_handler=self._control,
         )
-        self.lock = InstanceLock(config.paths.tdlib.parent / ".daemon.lock")
+        self.lock = InstanceLock(config.paths.session.parent / ".daemon.lock")
         self.stop_event = asyncio.Event()
         self.job_runner = JobRunner(
             telegram=self.client,
@@ -84,34 +75,60 @@ class Daemon:
             account_id=self.account_id,
         )
         self._job_task: asyncio.Task[None] | None = None
-        self._identity_task: asyncio.Task[None] | None = None
 
     async def run(self) -> None:
         self.lock.acquire()
-        self.config.paths.tdlib.mkdir(parents=True, exist_ok=True)
-        self.config.paths.media.mkdir(parents=True, exist_ok=True)
-        self.database.migrate()
-        await self.client.start()
-        await self.control.start()
-        for chat_id, target in self.config.targets.items():
-            if target.history_enabled:
-                self.database.enqueue_job(
-                    kind="chat_history",
-                    payload={"chat_id": chat_id, "from_message_id": 0},
-                    deduplication_key=f"history:{chat_id}",
-                )
-        self._job_task = asyncio.create_task(self._run_jobs())
-        loop = asyncio.get_running_loop()
-        for sig in (signal.SIGINT, signal.SIGTERM):
-            try:
-                loop.add_signal_handler(sig, self.stop_event.set)
-            except NotImplementedError:
-                pass
-        LOGGER.info("daemon ready for account %s", self.config.account.name)
         try:
+            self.config.paths.media.mkdir(parents=True, exist_ok=True)
+            self._ensure_session()
+            self.database.migrate()
+            await self.client.connect()
+            me = await self.client.get_me()
+            self.account_id = int(me.id)
+            self.collector.account_id = self.account_id
+            self.control.account_id = self.account_id
+            self.job_runner.account_id = self.account_id
+            self.database.register_account(self.account_id, self.config.account.name)
+            self.client.subscribe(self.collector.handle_update)
+            await self._discover_dialogs()
+            await self.control.start()
+            for chat_id, target in self.config.targets.items():
+                if target.history_enabled:
+                    self.database.enqueue_job(
+                        kind="chat_history",
+                        payload={"chat_id": chat_id, "from_message_id": 0},
+                        deduplication_key=f"history:{chat_id}",
+                    )
+            self._job_task = asyncio.create_task(self._run_jobs())
+            loop = asyncio.get_running_loop()
+            for sig in (signal.SIGINT, signal.SIGTERM):
+                try:
+                    loop.add_signal_handler(sig, self.stop_event.set)
+                except NotImplementedError:
+                    pass
+            LOGGER.info("daemon ready for account %s", self.config.account.name)
             await self.stop_event.wait()
         finally:
             await self.shutdown()
+
+    def _ensure_session(self) -> None:
+        if not self.config.paths.session.is_file():
+            raise RuntimeError(
+                "Telethon session is missing; run "
+                "`tg-osint session import-tdata` first"
+            )
+
+    async def _discover_dialogs(self) -> None:
+        async for chat in self.client.dialogs():
+            self.database.upsert_chat(
+                account_id=self.account_id,
+                chat_id=int(chat["id"]),
+                title=str(chat["title"]),
+                chat_type=str(chat["type"]),
+                username=chat.get("username"),
+                raw=chat,
+                observed_at=int(time.time()),
+            )
 
     async def shutdown(self) -> None:
         if self._job_task is not None:
@@ -120,69 +137,22 @@ class Daemon:
                 await self._job_task
             except asyncio.CancelledError:
                 pass
-        if self._identity_task is not None and not self._identity_task.done():
-            self._identity_task.cancel()
         await self.control.close()
-        if self.authorization.state not in {
-            "authorizationStateClosed",
-            "authorizationStateClosing",
-        }:
-            self.client.send({"@type": "close"})
-        await self.client.close()
-        self.database.close()
-        self.lock.release()
+        try:
+            await self.client.disconnect()
+        finally:
+            self.database.close()
+            self.lock.release()
 
     async def _run_jobs(self) -> None:
         while True:
-            if (
-                self.authorization.state != "authorizationStateReady"
-                or self.account_id == 0
-            ):
-                await asyncio.sleep(0.25)
-                continue
             worked = await self.job_runner.run_once()
             if not worked:
                 await asyncio.sleep(0.25)
 
-    def _update(self, update: dict[str, Any]) -> None:
-        if update.get("@type") == "updateAuthorizationState":
-            state = update.get("authorization_state", {})
-            self.authorization.handle(state)
-            if (
-                state.get("@type") == "authorizationStateReady"
-                and self._identity_task is None
-            ):
-                self._identity_task = asyncio.create_task(self._load_identity())
-        else:
-            self.collector.handle_update(update)
-
-    async def _load_identity(self) -> None:
-        me = await self.client.request({"@type": "getMe"})
-        account_id = int(me["id"])
-        self.account_id = account_id
-        self.collector.account_id = account_id
-        self.control.account_id = account_id
-        self.job_runner.account_id = account_id
-        self.database.register_account(account_id, self.config.account.name)
-
     def _control(self, command: str, arguments: dict[str, Any]) -> Any:
         if command == "auth.status":
-            return {
-                "state": self.authorization.state,
-                "qr_link": self.authorization.qr_link,
-            }
-        if command == "auth.qr":
-            self.authorization.request_qr()
-            return {"accepted": True}
-        if command == "auth.phone":
-            self.authorization.submit_phone(str(arguments["phone_number"]))
-            return {"accepted": True}
-        if command == "auth.code":
-            self.authorization.submit_code(str(arguments["code"]))
-            return {"accepted": True}
-        if command == "auth.password":
-            self.authorization.submit_password(str(arguments["password"]))
-            return {"accepted": True}
+            return {"state": "authorizationStateReady", "backend": "telethon"}
         if command == "targets.list":
             return {
                 str(chat_id): {
@@ -218,6 +188,6 @@ class Daemon:
         raise ValueError(f"unknown command: {command}")
 
 
-def run_daemon(config_path: str | Path, library_path: str | Path) -> None:
+def run_daemon(config_path: str | Path) -> None:
     config = load_config(config_path)
-    asyncio.run(Daemon(config, library_path=library_path).run())
+    asyncio.run(Daemon(config).run())

@@ -134,12 +134,13 @@ class Collector:
 
     def _user(self, user: dict[str, Any]) -> None:
         usernames = user.get("usernames", {}).get("active_usernames", [])
+        username = user.get("username") or (usernames[0] if usernames else None)
         self.database.upsert_user(
             account_id=self.account_id,
             user_id=int(user["id"]),
             first_name=user.get("first_name"),
             last_name=user.get("last_name"),
-            username=usernames[0] if usernames else None,
+            username=username,
             phone_number=user.get("phone_number"),
             raw=user,
             observed_at=int(time.time()),

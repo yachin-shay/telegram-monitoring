@@ -36,6 +36,29 @@ targets:
     assert len(config.config_hash) == 64
 
 
+def test_config_accepts_tdata_and_telethon_session_paths(tmp_path: Path) -> None:
+    path = tmp_path / "account.yaml"
+    path.write_text(
+        """
+schema_version: 1
+account: {name: research, api_id: 12345, api_hash: secret}
+paths:
+  tdata: state/tdata
+  session: state/account.session
+  database: state/data.sqlite3
+  media: state/media
+targets: {}
+""",
+        encoding="utf-8",
+    )
+
+    config = load_config(path)
+
+    assert config.paths.tdata == (tmp_path / "state/tdata").resolve()
+    assert config.paths.session == (tmp_path / "state/account.session").resolve()
+    assert config.paths.tdlib is None
+
+
 def test_unknown_config_key_is_rejected(tmp_path: Path) -> None:
     path = tmp_path / "bad.yaml"
     path.write_text(

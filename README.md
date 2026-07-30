@@ -1,26 +1,25 @@
 # Telegram OSINT Collector
 
-An authorized, account-scoped Telegram collector using Python and TDLib. It
-stores selected chat histories and real-time updates in SQLite, preserves every
-observed message revision, marks deletions without erasing evidence, enriches
-visible user profiles, and optionally collects all profile photos visible to the
-authenticated account.
+An authorized, account-scoped Telegram collector using Telethon and OpenTele2.
+It accepts an existing authenticated Telegram Desktop `tdata` directory,
+converts it into a separate Telethon session, then stores selected chat
+histories and real-time updates in SQLite.
 
-It does not generate Telegram Desktop `tdata`, bypass Telegram privacy controls,
-or provide access beyond the authenticated account.
+It never modifies the source `tdata`, extracts private TDLib keys, bypasses
+Telegram privacy controls, or provides access beyond the authenticated account.
 
 ## Current capabilities
 
-- One foreground daemon and TDLib session per account.
-- QR authentication with phone/code/2FA fallback controls.
+- One foreground Telethon daemon and session per account.
+- Safe `tdata` → Telethon session conversion.
 - Multi-terminal control through an owner-only Unix socket.
 - Strict, versioned YAML configuration as the source of truth.
 - Joined-chat metadata persistence and target selection by numeric chat ID.
 - Selected-chat history jobs with page checkpoints and targeted real-time updates.
 - Unlimited message revisions and non-destructive deletion markers.
-- Explicit user scrape jobs with full-info and visible photo-history pagination.
-- Per-target media policy and a content-addressed file-storage primitive.
-- SQLite WAL storage and plugin-outbox primitives.
+- Explicit user scrape jobs with profile-photo pagination.
+- Per-target media policy and content-addressed file-storage primitive.
+- SQLite storage and plugin-outbox primitives.
 
 ## Development setup
 
@@ -44,19 +43,27 @@ cp config.example.yaml config.yaml
 export TELEGRAM_API_HASH='your-api-hash'
 ```
 
-Build TDLib's `tdjson` target from an explicitly pinned official release, then
-start the foreground daemon:
+Convert an existing authenticated Desktop profile first:
 
 ```bash
-.venv/bin/tg-osint --config config.yaml daemon \
-  --tdjson /absolute/path/to/libtdjson.so
+.venv/bin/tg-osint --config config.yaml session import-tdata \
+  --tdata /secure/path/TelegramDesktop/tdata \
+  --output state/research-1/account.session
+```
+
+The source directory is read-only. The command prompts for a Desktop passcode
+without accepting it as a command-line argument.
+
+Start the foreground daemon:
+
+```bash
+.venv/bin/tg-osint --config config.yaml daemon
 ```
 
 Use other terminals for control:
 
 ```bash
-.venv/bin/tg-osint --config config.yaml auth status
-.venv/bin/tg-osint --config config.yaml auth qr
+.venv/bin/tg-osint --config config.yaml status
 .venv/bin/tg-osint --config config.yaml chats
 .venv/bin/tg-osint --config config.yaml targets add -1001234567890
 .venv/bin/tg-osint --config config.yaml targets media \
@@ -64,9 +71,6 @@ Use other terminals for control:
 .venv/bin/tg-osint --config config.yaml user-scrape 123456789 \
   --photos all_visible_history
 ```
-
-Authentication codes and 2FA passwords are prompted securely and are not
-accepted as command arguments.
 
 ## Documentation
 

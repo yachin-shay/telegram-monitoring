@@ -1,5 +1,11 @@
 # Telegram OSINT Collector — First Implementation Plan
 
+> Superseding implementation decision (2026-07-30): the runtime collector uses
+> Telethon, not TDLib. An existing Telegram Desktop `tdata` directory is
+> converted read-only into a separate Telethon session by pinned OpenTele2.
+> TDLib-specific authentication and session-generation work is not part of the
+> active runtime plan.
+
 ## Purpose
 
 This plan describes a lawful, account-scoped Telegram collection tool built
@@ -67,4 +73,3 @@ The first release is complete when an operator can:
 8. inspect and cancel durable jobs;
 9. install a plugin without modifying collector internals;
 10. stop the daemon cleanly without corrupting TDLib or SQLite state.
-

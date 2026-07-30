@@ -30,10 +30,12 @@ class AccountConfig:
 
 @dataclass(frozen=True, slots=True)
 class PathConfig:
-    tdlib: Path
+    tdata: Path
+    session: Path
     database: Path
     media: Path
     socket: Path
+    tdlib: Path | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -196,7 +198,11 @@ def load_config(
         raise ConfigError("account.name and integer account.api_id are required") from error
 
     path_data = _mapping(data.get("paths"), "paths")
-    _strict_keys(path_data, {"tdlib", "database", "media", "socket"}, "paths")
+    _strict_keys(
+        path_data,
+        {"tdata", "session", "tdlib", "database", "media", "socket"},
+        "paths",
+    )
     base = source.parent
 
     def resolve(name: str, default: str | None = None) -> Path:
@@ -206,13 +212,21 @@ def load_config(
         candidate = Path(str(value))
         return candidate.resolve() if candidate.is_absolute() else (base / candidate).resolve()
 
+    legacy_tdlib = resolve("tdlib") if "tdlib" in path_data else None
+    tdata = resolve("tdata", str(legacy_tdlib / "tdata") if legacy_tdlib else None)
+    session = resolve(
+        "session",
+        str(legacy_tdlib.parent / "account.session") if legacy_tdlib else None,
+    )
     paths = PathConfig(
-        tdlib=resolve("tdlib"),
+        tdata=tdata,
+        session=session,
         database=resolve("database"),
         media=resolve("media"),
         socket=resolve("socket", "state/daemon.sock"),
+        tdlib=legacy_tdlib,
     )
-    if len({paths.tdlib, paths.database, paths.media, paths.socket}) != 4:
+    if len({paths.tdata, paths.session, paths.database, paths.media, paths.socket}) != 5:
         raise ConfigError("configured paths must be distinct")
 
     targets_data = _mapping(data.get("targets"), "targets")

@@ -8,7 +8,12 @@ version = "0.1.0"
 description = "Authorized, account-scoped Telegram collection daemon"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = ["PyYAML>=6"]
+dependencies = [
+    "PyYAML>=6",
+    "Telethon>=1.44,<2",
+    "TgCrypto>=1.2",
+    "opentele2>=1.0,<2",
+]
 
 [project.scripts]
 tg-osint = "telegram_osint.cli:main"
@@ -20,4 +25,3 @@ where = ["src"]
 addopts = "-q"
 testpaths = ["tests"]
 pythonpath = ["src"]
-

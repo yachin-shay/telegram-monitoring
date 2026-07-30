@@ -4,7 +4,6 @@ import argparse
 import asyncio
 import getpass
 import json
-import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -12,6 +11,7 @@ from typing import Any
 from telegram_osint.config import ConfigError, load_config
 from telegram_osint.daemon import run_daemon
 from telegram_osint.ipc import ControlClient
+from telegram_osint.session import OpenTele2Converter
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -26,12 +26,12 @@ def build_parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True)
 
     daemon = commands.add_parser("daemon", help="run the foreground daemon")
-    daemon.add_argument(
-        "--tdjson",
-        type=Path,
-        default=os.environ.get("TDJSON_LIBRARY"),
-        required=os.environ.get("TDJSON_LIBRARY") is None,
-    )
+    session = commands.add_parser("session", help="manage authenticated sessions")
+    session_subcommands = session.add_subparsers(dest="session_command", required=True)
+    import_tdata = session_subcommands.add_parser("import-tdata")
+    import_tdata.add_argument("--tdata", type=Path, required=True)
+    import_tdata.add_argument("--output", type=Path, required=True)
+    import_tdata.add_argument("--force", action="store_true")
 
     commands.add_parser("status")
     commands.add_parser("chats")
@@ -55,10 +55,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     job = commands.add_parser("job-show")
     job.add_argument("job_id")
-
-    auth = commands.add_parser("auth")
-    auth.add_argument("action", choices=("status", "qr", "phone", "code", "password"))
-    auth.add_argument("--phone-number")
 
     return parser
 
@@ -91,16 +87,6 @@ async def _request(args: argparse.Namespace) -> dict[str, Any]:
         return await client.request(f"targets.{args.action}", arguments)
     if args.command == "job-show":
         return await client.request("jobs.show", {"job_id": args.job_id})
-    if args.command == "auth":
-        if args.action == "status":
-            return await client.request("auth.status", {})
-        if args.action == "qr":
-            return await client.request("auth.qr", {})
-        if args.action == "phone":
-            phone = args.phone_number or input("Phone number: ")
-            return await client.request("auth.phone", {"phone_number": phone})
-        secret = getpass.getpass(f"Telegram {args.action}: ")
-        return await client.request(f"auth.{args.action}", {args.action: secret})
     raise RuntimeError(f"unsupported command: {args.command}")
 
 
@@ -109,7 +95,21 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         if args.command == "daemon":
-            run_daemon(args.config, args.tdjson)
+            run_daemon(args.config)
+            return 0
+        if args.command == "session":
+            if args.session_command != "import-tdata":
+                raise ConfigError("unsupported session command")
+            passcode = getpass.getpass(
+                "tdata passcode (leave empty if none): "
+            ) or None
+            result = OpenTele2Converter().convert(
+                args.tdata,
+                args.output,
+                passcode=passcode,
+                force=args.force,
+            )
+            print(json.dumps(result, sort_keys=True))
             return 0
         response = asyncio.run(_request(args))
     except (ConfigError, OSError, RuntimeError, ConnectionError) as error:
