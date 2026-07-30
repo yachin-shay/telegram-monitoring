@@ -4,10 +4,23 @@ from collections.abc import AsyncIterator, Callable
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+import base64
 
 
 def _timestamp(value: datetime | None) -> int:
     return int(value.timestamp()) if value is not None else 0
+
+
+def _json_safe(value: Any) -> Any:
+    if isinstance(value, bytes):
+        return {"__bytes__": base64.b64encode(value).decode("ascii")}
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    return value
 
 
 def telethon_message_to_update(
@@ -28,7 +41,7 @@ def telethon_message_to_update(
                 "@type": "messageText",
                 "text": {"text": text or "", "entities": []},
             },
-            "_telethon_raw": raw,
+            "_telethon_raw": _json_safe(raw),
         },
     }
 
@@ -187,9 +200,9 @@ class TelethonAdapter:
     @staticmethod
     def _to_dict(value: Any) -> dict[str, Any]:
         if hasattr(value, "to_dict"):
-            return value.to_dict()
+            return _json_safe(value.to_dict())
         if isinstance(value, dict):
-            return value
+            return _json_safe(value)
         return {"value": repr(value)}
 
     @classmethod

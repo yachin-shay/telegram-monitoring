@@ -58,3 +58,25 @@ def test_conversion_refuses_existing_output_without_force(tmp_path: Path) -> Non
 
     with pytest.raises(SessionConversionError, match="destination exists"):
         converter.convert(tdata, output)
+
+
+def test_force_conversion_replaces_atomically_and_writes_manifest(tmp_path: Path) -> None:
+    tdata = tmp_path / "tdata"
+    tdata.mkdir()
+    (tdata / "key").write_bytes(b"stable")
+    output = tmp_path / "account.session"
+    output.write_bytes(b"old")
+
+    result = FakeConverter().convert(tdata, output, force=True)
+
+    assert result["session"] == str(output.resolve())
+    assert output.read_bytes() == b"telethon-session"
+    assert output.with_suffix(".session.manifest.json").is_file()
+    assert (tdata / "key").read_bytes() == b"stable"
+
+
+def test_conversion_rejects_destination_inside_source(tmp_path: Path) -> None:
+    tdata = tmp_path / "tdata"
+    tdata.mkdir()
+    with pytest.raises(SessionConversionError, match="inside"):
+        FakeConverter().convert(tdata, tdata / "account.session")

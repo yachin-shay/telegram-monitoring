@@ -9,10 +9,10 @@ description = "Authorized, account-scoped Telegram collection daemon"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "PyYAML>=6",
-    "Telethon>=1.44,<2",
-    "TgCrypto>=1.2",
-    "opentele2>=1.0,<2",
+    "PyYAML==6.0.3",
+    "Telethon==1.44.0",
+    "TgCrypto==1.2.5",
+    "opentele2==1.2.1",
 ]
 
 [project.scripts]

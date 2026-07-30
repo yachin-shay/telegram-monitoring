@@ -83,13 +83,15 @@ class Daemon:
             self._ensure_session()
             self.database.migrate()
             await self.client.connect()
+            # Register handlers immediately after connecting so updates arriving
+            # during identity/dialog discovery are not lost.
+            self.client.subscribe(self.collector.handle_update)
             me = await self.client.get_me()
             self.account_id = int(me.id)
             self.collector.account_id = self.account_id
             self.control.account_id = self.account_id
             self.job_runner.account_id = self.account_id
             self.database.register_account(self.account_id, self.config.account.name)
-            self.client.subscribe(self.collector.handle_update)
             await self._discover_dialogs()
             await self.control.start()
             for chat_id, target in self.config.targets.items():
