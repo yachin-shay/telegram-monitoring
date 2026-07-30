@@ -52,3 +52,17 @@ def test_multiple_clients_control_one_daemon(tmp_path: Path) -> None:
 
     asyncio.run(scenario())
 
+
+def test_missing_control_socket_explains_that_daemon_must_start(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> None:
+        client = ControlClient(tmp_path / "missing.sock")
+        try:
+            await client.request("status", {})
+        except ConnectionError as error:
+            assert "start the daemon" in str(error)
+        else:
+            raise AssertionError("missing socket should fail")
+
+    asyncio.run(scenario())

@@ -129,7 +129,17 @@ class ControlClient:
         command: str,
         arguments: dict[str, Any],
     ) -> dict[str, Any]:
-        reader, writer = await asyncio.open_unix_connection(self.socket_path)
+        try:
+            reader, writer = await asyncio.open_unix_connection(self.socket_path)
+        except FileNotFoundError as error:
+            raise ConnectionError(
+                f"daemon socket does not exist: {self.socket_path}; "
+                "start the daemon with the same --config file first"
+            ) from error
+        except ConnectionRefusedError as error:
+            raise ConnectionError(
+                f"daemon is not listening on socket: {self.socket_path}"
+            ) from error
         request = {
             "version": 1,
             "request_id": uuid.uuid4().hex,
